@@ -1,0 +1,10 @@
+. Create phonepe-payment-session Function
+In your Supabase Dashboard, go to Edge Functions and create a new function named phonepe-payment-session.
+Paste the code below into the function body.
+Go to the Secrets tab for this function and add your PHONEPE_MERCHANT_ID, PHONEPE_SALT_KEY, and PHONEPE_SALT_INDEX.
+Deploy the function.
+
+
+B. Create phonepe-verify-payment Function
+Create another function named phonepe-verify-payment.
+Paste the code below, add the same three secrets (PHONEPE_MERCHANT_ID, etc.), and deploy.
