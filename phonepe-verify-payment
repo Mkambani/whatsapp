@@ -1,0 +1,53 @@
+// supabase/functions/phonepe-verify-payment/index.ts
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createHash } from "https://deno.land/std@0.188.0/crypto/mod.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const { merchantTransactionId } = await req.json();
+
+    const MERCHANT_ID = Deno.env.get('PHONEPE_MERCHANT_ID');
+    const SALT_KEY = Deno.env.get('PHONEPE_SALT_KEY');
+    const SALT_INDEX = Deno.env.get('PHONEPE_SALT_INDEX');
+    const PHONEPE_API_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox";
+
+    if (!MERCHANT_ID || !SALT_KEY || !SALT_INDEX) {
+      throw new Error('PhonePe credentials are not set on the server.');
+    }
+
+    const checksumString = `/pg/v1/status/${MERCHANT_ID}/${merchantTransactionId}${SALT_KEY}`;
+    const sha256 = createHash("sha256");
+    sha256.update(checksumString);
+    const checksum = sha256.toString() + `###${SALT_INDEX}`;
+
+    const response = await fetch(`${PHONEPE_API_URL}/pg/v1/status/${MERCHANT_ID}/${merchantTransactionId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-VERIFY': checksum,
+        'X-MERCHANT-ID': MERCHANT_ID
+      },
+    });
+
+    const responseData = await response.json();
+
+    return new Response(JSON.stringify(responseData), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400,
+    });
+  }
+});
