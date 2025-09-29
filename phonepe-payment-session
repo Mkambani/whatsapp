@@ -1,0 +1,73 @@
+// supabase/functions/phonepe-payment-session/index.ts
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createHash } from "https://deno.land/std@0.188.0/crypto/mod.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const { amount, merchantTransactionId, user, returnUrl } = await req.json();
+
+    const MERCHANT_ID = Deno.env.get('PHONEPE_MERCHANT_ID');
+    const SALT_KEY = Deno.env.get('PHONEPE_SALT_KEY');
+    const SALT_INDEX = Deno.env.get('PHONEPE_SALT_INDEX');
+    
+    // Use the UAT (testing) URL. Change to "api.phonepe.com" for production.
+    const PHONEPE_API_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox";
+
+    if (!MERCHANT_ID || !SALT_KEY || !SALT_INDEX) {
+      throw new Error('PhonePe credentials are not set on the server.');
+    }
+
+    const payload = {
+      merchantId: MERCHANT_ID,
+      merchantTransactionId: merchantTransactionId,
+      merchantUserId: user.id,
+      amount: amount * 100, // Amount in paise
+      redirectUrl: returnUrl,
+      redirectMode: "REDIRECT",
+      callbackUrl: returnUrl, // Can be the same as redirectUrl
+      mobileNumber: user.phone,
+      paymentInstrument: { type: "PAY_PAGE" }
+    };
+
+    const base64Payload = btoa(JSON.stringify(payload));
+    const checksumString = `${base64Payload}/pg/v1/pay${SALT_KEY}`;
+    
+    const sha256 = createHash("sha256");
+    sha256.update(checksumString);
+    const checksum = sha256.toString() + `###${SALT_INDEX}`;
+
+    const response = await fetch(`${PHONEPE_API_URL}/pg/v1/pay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-VERIFY': checksum,
+      },
+      body: JSON.stringify({ request: base64Payload }),
+    });
+
+    const responseData = await response.json();
+    
+    if (!responseData.success) {
+      throw new Error(responseData.message || "Failed to initiate PhonePe payment.");
+    }
+
+    return new Response(JSON.stringify(responseData), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400,
+    });
+  }
+});
